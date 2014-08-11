@@ -19,6 +19,7 @@ def parse_commandline_options():
     parser.add_option("", "--since", dest="since", help="[REQUIRED] Date since report will be generated.", metavar="DATE") 
     parser.add_option("", "--author", dest="author", help="[REQUIRED] User name to search commits by.", metavar="DATE") 
     parser.add_option("", "--find-touched-files", dest="only_file_list", action='store_true', help="Instead of generating report, will find touched files and print them to stdout.") 
+    parser.add_option("", "--until", dest="until", help="Generate diff until given date", metavar="DATE") 
     (options, args) = parser.parse_args() 
     checkRequiredArguments(options, parser)
     return (options, args)
@@ -31,7 +32,10 @@ if not args:
     exit(2)
 
 
-common_git_args = ["--since", options.since, "--author", options.author] + args
+common_git_args = ["--since", options.since, "--author", options.author]
+if (options.until):
+    common_git_args += ["--until", options.until]
+common_git_args += args
 def shell(command):
     from subprocess import Popen, PIPE
     return Popen(command, stdout=PIPE).communicate()[0].decode().split("\n")[:-1]
