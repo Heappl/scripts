@@ -44,7 +44,7 @@ def getThreadName(line):
     threadTokens = tokens[2].split("=")
     if (threadTokens[0] == "?"):
         return threadTokens[1]
-    return ""#threadTokens[0]
+    return threadTokens[0]
 
 def splitPerThread(content):
     ret = {}
