@@ -15,12 +15,11 @@ def parse_commandline_options():
 (options, args) = parse_commandline_options() 
 
 
-freeout = commands.getoutput("free -m | grep Mem")
-found = re.search("Mem: +[0-9]+ +[0-9]+ +([0-9]+)", freeout)
-mem = found.group(1)
-
 
 while(True):
+    freeout = commands.getoutput("free -m | grep Mem")
+    found = re.search("Mem: +[0-9]+ +[0-9]+ +([0-9]+)", freeout)
+    mem = found.group(1)
     log = (str(time.time()) + " " + str(mem))
     if (options.output):
         outfile = open(options.output, "a").write(log + "\n")
