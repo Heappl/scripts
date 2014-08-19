@@ -21,7 +21,8 @@ def parse_commandline_options():
     parser.add_option("", "--find-touched-files", dest="only_file_list", action='store_true', help="Instead of generating report, will find touched files and print them to stdout.") 
     parser.add_option("", "--until", dest="until", help="Generate diff until given date", metavar="DATE") 
     (options, args) = parser.parse_args() 
-    checkRequiredArguments(options, parser)
+    if (not options.only_file_list):
+        checkRequiredArguments(options, parser)
     return (options, args)
 
 (options, args) = parse_commandline_options() 
