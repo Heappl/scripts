@@ -78,7 +78,7 @@ open(log_file, "+w").write("\n".join(git(["log"] + common_git_args)))
 print("generated log file: " + log_file)
 open(diff_file, "+w").write(generateDiff())
 print("generated diff file: " + diff_file)
-shell(["zip", zip_file] + list(touched_files) + [log_file, diff_file])
+shell(["zip", zip_file] + list(touched_files) + [log_file])
 print("generated zip file: " + zip_file + " containing " + str(len(touched_files) + 2) + " files")
 
 #logs = subprocess.call(["git", "log", "--since", options.since, "--author", options.author] + args)
