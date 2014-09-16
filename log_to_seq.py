@@ -19,6 +19,10 @@ def parse_commandline_options():
 def components(log):
     cocrs = [re.search('\|cocr\|.*\|(.*)\|(once|alive)', line) for line in log]
     return set([res.group(1) for res in cocrs if res != None])
+def mapped(log):
+    ports = [re.search('\|ptmp\|.*\|([^|]+)\|SYSTEM', line) for line in log]
+    return set([res.group(1) for res in ports if res != None])
+    
 
 def writeCommOp(out, msg, receiver, sender):
     out.write(sender + " -> " + receiver + ": " + msg + "\n")
@@ -39,7 +43,6 @@ class CommEvent(Event):
         if (options.external_only):
             ret = ret and (self.receiver in externals) or (self.sender in externals)
         if (options.disabled_msgs):
-            print (self.msg, options.disabled_msgs, (self.msg in options.disabled_msgs))
             if (self.msg in options.disabled_msgs):
                 ret = False
         return ret
@@ -63,7 +66,7 @@ class PtrxEvent(CommEvent):
         if (res != None):
             self.sender = res.group(1)
     
-    def update(self, comps):
+    def update(self, comps, systemPorts):
         if not (self.sender in comps) and (self.sender != "null"):
             self.sender = "system"
         
@@ -74,34 +77,44 @@ class PtsdEvent(CommEvent):
         self.extractInfo(line)
 
     def extractInfo(self, line):
-        res = re.search('\|ptsd\|([^=]+)=.*\|SYSTEM\.[^|]+\|[^.]+\.([^|]+)\|', line)
+        res = re.search('\|ptsd\|([^=]+)=[^|]+\|[^|]+\|([^|:]+):[^|]+\|[^.]+\.([^|]+)\|', line)
         if (res != None):
-            self.msg = res.group(2)
-            self.receiver = "system"
+            self.msg = res.group(3)
+            self.receiver = res.group(2)
             self.sender = res.group(1)
-    def update(self, comps):
-        pass
+            if (len(self.receiver) > len("SYSTEM")) and (self.receiver[:len("SYSTEM")] == "SYSTEM"):
+                self.receiver = "system"
+    def filter(self, options):
+        return self.receiver == "system"
+    def update(self, comps, systemPorts):
+        if (self.receiver in systemPorts):
+            print (self.receiver)
+            self.receiver = "system"
 
 class UlogEvent(Event):
     def __init__(self, line):
-        res = re.search('\|ulog\|[^|]+\|"([A-Z]*): *""([^"]*)".*', line)
-        self.level = res.group(1)
-        self.msg = res.group(2)
-    def update(self, comps):
+        res = re.search('\|ulog\|[^|]+\|("([A-Z]*): *""([^"]*)".*)', line)
+        if (res == None):
+            res = re.search('\|ulog\|[^|]+\|(.*)', line)
+            self.level = "DEBUG"
+            self.msg = res.group(1)
+        else:
+            self.level = res.group(2)
+            self.msg = res.group(3)
+    def update(self, comps, systemPorts):
         pass
     def filter(self, options):
         return (not options.no_debug) or ((self.level != "DEBUG") and (not options.no_ulogs))
     def produce(self, out):
         out.write("== " + self.level + " " + self.msg + " ==\n")
     def equals_impl(self, other):
-        return False
-        #return (self.level == other.level) and (self.msg == other.msg)
+        return (self.level == other.level) and (self.msg == other.msg)
 
 class MultipleEvents(Event):
     def __init__(self, event, times):
         self.event = event
         self.times = times
-    def update(self, comps):
+    def update(self, comps, systemPorts):
         pass
     def produce(self, out):
         out.write("loop " + str(self.times) + " times\n")
@@ -112,7 +125,7 @@ def createEvents(log):
     def is_ulog(line):
         return re.match('[0-9.T]+\|ulog\|', line) != None
     def is_ptsd(line):
-        return re.match('[0-9.T]+\|ptsd\|.*SYSTE', line) != None
+        return re.match('[0-9.T]+\|ptsd\|', line) != None
     def is_ptrx(line):
         return re.match('[0-9.T]+\|ptrx\|.*consume.*', line) != None
     def is_intresting(line):
@@ -141,9 +154,13 @@ def contract(events):
     return events + [create_multiple_or_not(times, last)]
 
 def generate_uml(logfile, options):
+    fromfile = open(logfile).read().split("\n")
+    comps = components(fromfile)
+    systemPorts = mapped(fromfile)
+
     since_log_seen = (options.since_line == None)
     log = []
-    for line in open(logfile).read().split("\n"):
+    for line in fromfile:
         if (options.since_line and not since_log_seen):
             if (re.match(".*" + options.since_line, line)):
                 since_log_seen = True
@@ -152,10 +169,9 @@ def generate_uml(logfile, options):
                 break
         if (since_log_seen):
             log.append(line)
-    comps = components(log)
     events = createEvents(log)
     for event in events:
-        event.update(comps)
+        event.update(comps, systemPorts)
     events = filter(lambda e : e.filter(options), events)
     events = contract(events)
     out = open(logfile + ".uml", "w")
