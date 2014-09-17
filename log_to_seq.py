@@ -21,17 +21,27 @@ def mapped(log):
     return set([res.group(1) for res in ports if res != None])
     
 
+def getComponent(port):
+    port = port.replace('~', '')
+    port = port.replace('$', '')
+    port = port.replace(' ', '_')
+    port = port.replace('-', '_')
+    res = re.match('([^.]+)\.', port)
+    return port if (res == None) else res.group(1)
 def writeCommOp(out, msg, receiver, sender):
-    def getComponent(port):
-        res = re.match('([^.]+)\.', port)
-        return port if (res == None) else res.group(1)
-    out.write(getComponent(sender) + " -> " + getComponent(receiver) + ": " + msg + "\n")
+    out.write(sender + " -> " + receiver + ": " + msg + "\n")
 
 class Event:
     def equals(self, other):
         return False if (self.__class__ != other.__class__) else self.equals_impl(other)
     def update(self, systemPorts):
         pass
+
+def msgDisabled(msg, disabledList):
+    for disabledMsg in disabledList:
+        if re.match('.*' + disabledMsg + '.*',  msg) != None:
+            return True
+    return False
 
 class CommEvent(Event):
     def __init__(self):
@@ -44,13 +54,14 @@ class CommEvent(Event):
         if (options.external_only):
             ret = ret and ((self.sender == "system") or (self.receiver == "system"))
         if (options.disabled_msgs):
-            ret = ret and (self.msg in options.disabled_msgs)
+            ret = ret and not msgDisabled(self.msg, options.disabled_msgs)
         return ret
 
     def produce(self, out):
         writeCommOp(out, self.msg, self.receiver, self.sender)
     def equals_impl(self, other):
         return (self.msg == other.msg) and (self.receiver == other.receiver) and (self.sender == other.sender)
+
 
 #most communication can be extracted through ptqu event
 class PtquEvent(CommEvent):
@@ -59,7 +70,9 @@ class PtquEvent(CommEvent):
         self.extractInfo(line, msgExtractor)
 
     def extractInfo(self, line, msgExtractor):
-        res = re.search('\|ptqu\|([^=]+)=[^|]+\|([^|]+)\|message\(value=[^.]+\.([^:]+)(.*)\)', line)
+        res = re.search('\|ptqu\|([^=$]+)=[^|]+\|[$]*([^$|]+)\|message\(value=[^.]+\.([^:]+)(.*)\)', line)
+        if (res == None):
+            res = re.search('\|ptqu\|([^|]+)\|[$]*([^$|]+)\|message\(value=[^.]+\.([^:]+)(.*)\)', line)
         if (res != None):
             self.msg = msgExtractor(res.group(3), res.group(4))
             self.receiver = res.group(2)
@@ -68,10 +81,12 @@ class PtquEvent(CommEvent):
             print(line)
     
     def update(self, systemPorts):
+        self.sender = getComponent(self.sender)
+        self.receiver = getComponent(self.sender)
         if (self.sender == '?'):
             self.sender = "system"
-        #if not (self.sender in systemPorts):
-            #self.sender = "system"
+        if not (self.sender in systemPorts):
+            self.sender = "system"
 
     @staticmethod
     def descr():
@@ -94,8 +109,10 @@ class PtsdEvent(CommEvent):
                 self.receiver = "system"
 
     def filter(self, options, systemPorts):
-        return self.receiver == "system"
+        return (self.receiver == "system") and CommEvent.filter(self, options, systemPorts)
     def update(self, systemPorts):
+        self.sender = getComponent(self.sender)
+        self.receiver = getComponent(self.sender)
         if (self.sender in systemPorts):
             self.receiver = "system"
 
@@ -138,7 +155,7 @@ class Invalid(Event):
         pass
 
 def createEvents(log, msgExtractor):
-    eventTypes = [UlogEvent, PtsdEvent, PtquEvent]
+    eventTypes = [PtsdEvent, PtquEvent]
 
     def is_event(eventType, line):
         return re.match('[0-9.T]+\|' + eventType.descr() + '\|', line) != None
@@ -165,17 +182,22 @@ def contract(events):
     return events + [create_multiple_or_not(times, last)]
 
 def msgExtractor(msg, line):
+    if (msg == "IMUpdateNotification") or (msg == "IMExecutionRequest"):
+        res = re.search('.*distname:="([^"]+)"', line)
+        return msg if (res == None) else msg + "(" + res.group(1) + ")"
+
     if (msg == "IMChangeRequest"):
         res = re.search('request_id:=([^,]+).*distname:="([^"]+)"', line)
         #res = re.search("object:=.*object:={([^:]+):=", line)
-        if (res == None):
-            return msg
-        return msg + "#" + res.group(1) + "(" + res.group(2) + ")"
+        return msg if (res == None) else msg + "#" + res.group(1) + "(" + res.group(2) + ")"
+
     if (msg == "IMOperationExecuted"):
         res = re.search('request_id:=([^,]+)', line)
-        if (res == None):
-            return msg
-        return msg + "#" + res.group(1)
+        return msg if (res == None) else msg + "#" + res.group(1)
+
+    if (msg == "IMExecutionResult"):
+        res = re.search('request_id:=([^,]+).*execution_status:=([^,}]+)', line)
+        return msg if (res == None) else msg + "#" + res.group(1) + "(" + res.group(2) + ")"
     return msg
 
 def generate_uml(logfile, options):
