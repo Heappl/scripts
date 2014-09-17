@@ -81,12 +81,12 @@ class PtquEvent(CommEvent):
             print(line)
     
     def update(self, systemPorts):
-        self.sender = getComponent(self.sender)
-        self.receiver = getComponent(self.sender)
+        if (self.receiver in systemPorts):
+            self.sender = "system"
         if (self.sender == '?'):
             self.sender = "system"
-        if not (self.sender in systemPorts):
-            self.sender = "system"
+        self.receiver = getComponent(self.receiver)
+        self.sender = getComponent(self.sender)
 
     @staticmethod
     def descr():
@@ -111,10 +111,10 @@ class PtsdEvent(CommEvent):
     def filter(self, options, systemPorts):
         return (self.receiver == "system") and CommEvent.filter(self, options, systemPorts)
     def update(self, systemPorts):
-        self.sender = getComponent(self.sender)
-        self.receiver = getComponent(self.sender)
         if (self.sender in systemPorts):
             self.receiver = "system"
+        self.sender = getComponent(self.sender)
+        self.receiver = getComponent(self.receiver)
 
     @staticmethod
     def descr():
