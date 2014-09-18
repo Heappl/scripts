@@ -5,12 +5,12 @@ import re
 def parse_commandline_options(): 
     from optparse import OptionParser 
     parser = OptionParser() 
-    parser.add_option("", "--debug_logs", default=True, action='store_false', dest="no_debug", help="turn to produce debug logs") 
-    parser.add_option("", "--no_ulogs", action='store_true', help="disable ulog") 
-    parser.add_option("", "--since_line", type='str', dest="since_line", help="the generated logs will start from there")
-    parser.add_option("", "--till_line", type='str', dest="till_line", help="the generated logs will end here")
-    parser.add_option("", "--disable_msgs", type='str', dest="disabled_msgs", help="comma separated list of messages to not display in output diagram")
-    parser.add_option("", "--external_only", action='store_true', help="Disabled - external only is default") 
+    parser.add_option("", "--debug_logs", default=True, action='store_false', dest="no_debug", help="turn to produce debug logs, by default only info logs/warning/error are displayed (those starting with DEBUG, WARNING, ERROR)") 
+    parser.add_option("", "--no_ulogs", action='store_true', help="disable ulog events completely") 
+    parser.add_option("", "--since_line", type='str', dest="since_line", help="the generated logs will start from there - any python regex is accepted and it may consider any line in log")
+    parser.add_option("", "--till_line", type='str', dest="till_line", help="the generated logs will end here - any python regex is accepted and it may consider any line in log")
+    parser.add_option("", "--disable_msgs", type='str', dest="disabled_msgs", help="comma separated list of messages (python regex without comma) that will not be displayed in output diagram")
+    parser.add_option("", "--internal", action='store_true', help="By default no k3 internal communication is disabled") 
     (options, args) = parser.parse_args() 
     if (options.disabled_msgs):
         options.disabled_msgs = options.disabled_msgs.split(',')
@@ -32,10 +32,12 @@ def writeCommOp(out, msg, receiver, sender):
     out.write(sender + " -> " + receiver + ": " + msg + "\n")
 
 class Event:
-    def equals(self, other):
+    def __eq__(self, other):
         return False if (self.__class__ != other.__class__) else self.equals_impl(other)
     def update(self, systemPorts):
         pass
+    def size(self):
+        return 1
 
 def msgDisabled(msg, disabledList):
     for disabledMsg in disabledList:
@@ -51,7 +53,7 @@ class CommEvent(Event):
     
     def filter(self, options, systemPorts):
         ret = True
-        if (options.external_only):
+        if (not options.internal):
             ret = ret and ((self.sender == "system") or (self.receiver == "system"))
         if (options.disabled_msgs):
             ret = ret and not msgDisabled(self.msg, options.disabled_msgs)
@@ -61,6 +63,12 @@ class CommEvent(Event):
         writeCommOp(out, self.msg, self.receiver, self.sender)
     def equals_impl(self, other):
         return (self.msg == other.msg) and (self.receiver == other.receiver) and (self.sender == other.sender)
+
+    def __hash__(self):
+        return hash((self.__class__, self.msg, self.sender, self.receiver))
+
+    def __str__(self):
+        return "{" + self.sender + " -> " + self.receiver + ": " + self.msg + "}"
 
 
 #most communication can be extracted through ptqu event
@@ -122,7 +130,7 @@ class PtsdEvent(CommEvent):
 
 class UlogEvent(Event):
     def __init__(self, line, _):
-        res = re.search('\|ulog\|[^|]+\|("([A-Z]*): *""([^"]*)".*)', line)
+        res = re.search('\|ulog\|[^|]+\|("([A-Z]*)[: *]""([^"]*)".*)', line)
         if (res == None):
             res = re.search('\|ulog\|[^|]+\|(.*)', line)
             self.level = "DEBUG"
@@ -136,26 +144,46 @@ class UlogEvent(Event):
         out.write("== " + self.level + " " + self.msg + " ==\n")
     def equals_impl(self, other):
         return (self.level == other.level) and (self.msg == other.msg)
+    def __hash__(self):
+        return hash((self.__class__, self.level, self.msg))
 
     @staticmethod
     def descr():
         return "ulog"
 
+    def __str__(self):
+        return "{" + self.level + ": " + self.msg + "}"
+
 class MultipleEvents(Event):
-    def __init__(self, event, times):
-        self.event = event
+    def __init__(self, events, times):
+        self.events = events
         self.times = times
     def produce(self, out):
         out.write("loop " + str(self.times) + " times\n")
-        self.event.produce(out)
+        for event in self.events:
+            event.produce(out)
         out.write("end\n")
+    def size(self):
+        return self.times * reduce(lambda acc, event : acc + event.size(), self.events, 0)
+    def equals_impl(self, other):
+        return (self.times, self.events) == (other.times, other.events)
+    def extractEvents(self):
+        def extractFromEvent(event):
+            return event.extractEvents() if (event.__class__ == self.__class__) else [event]
+        return sum([extractFromEvent(event) for event in self.events], [])
+    def patternSize(self):
+        return self.size() / self.times
+    def __hash__(self):
+        return hash((self.__class__, self.times, self.events))
+    def __str__(self):
+        return "{" + str(self.times) + " [" + [str(event) for event in self.events] + "]}"
 
 class Invalid(Event):
     def __init__(_1, _2, _3):
         pass
 
 def createEvents(log, msgExtractor):
-    eventTypes = [PtsdEvent, PtquEvent]
+    eventTypes = [UlogEvent, PtsdEvent, PtquEvent]
 
     def is_event(eventType, line):
         return re.match('[0-9.T]+\|' + eventType.descr() + '\|', line) != None
@@ -167,38 +195,108 @@ def createEvents(log, msgExtractor):
     return [extractInfo(line) for line in log if is_interesting(line)]
 
 def contract(events):
-    def create_multiple_or_not(times, first):
-        return first if (times == 1) else MultipleEvents(first, times)
-    def contract_two((times, last, acc), event):
-        if (last == None):
-            return (1, event, acc)
-        elif (last.equals(event)):
-            return (times + 1, last, acc)
-        else:
-            return (1, event, acc + [create_multiple_or_not(times, last)])
-    (times, last, events) = reduce(contract_two, events, (0, None, []))
-    if (last == None):
-        return []
-    return events + [create_multiple_or_not(times, last)]
+    def generateHashes(events):
+        hashes = [hash(event) for event in events]
+        ret = {}
+        for i in range(0, len(hashes)):
+            for j in range(i + 1, len(hashes)):
+                totalHash = reduce(lambda a, b: hash((a, b)), hashes[i:j], 0)
+                if not (totalHash in ret):
+                    ret[totalHash] = []
+                ret[totalHash].append((i, j))
+        return ret
 
-def msgExtractor(msg, line):
-    if (msg == "IMUpdateNotification") or (msg == "IMExecutionRequest"):
-        res = re.search('.*distname:="([^"]+)"', line)
-        return msg if (res == None) else msg + "(" + res.group(1) + ")"
+    def extractContinuations(first, rangeList, events):
+        ret = [first]
+        retRangeList = []
+        for (start, end) in rangeList:
+            elem = (start, end)
+            (prevstart, prevend) = ret[-1]
+            appended = False
+            if (start == prevend):
+                if events[start:end] == events[prevstart:prevend]:
+                    ret.append(elem)
+                    appended = True
+            if (not appended):
+                retRangeList.append(elem)
+        
+        (firsti, _) = ret[0]
+        (_, lastj) = ret[-1]
+        return ((len(ret), firsti, lastj), retRangeList)
 
-    if (msg == "IMChangeRequest"):
-        res = re.search('request_id:=([^,]+).*distname:="([^"]+)"', line)
-        #res = re.search("object:=.*object:={([^:]+):=", line)
-        return msg if (res == None) else msg + "#" + res.group(1) + "(" + res.group(2) + ")"
+    def extractDuplicates(ranges):
+        ret = []
+        ranges = sorted(ranges)
+        while (ranges):
+            first = ranges[0]
+            ((times, start, end), ranges) = extractContinuations(first, ranges[1:], events)
+            if (times > 1):
+                ret.append((times, start, end))
+        return ret
+                
+    def contractRanges((times, start, end), events):
+        if (times < 2):
+            return events
+        
+        patternSize = (end - start) / times
 
-    if (msg == "IMOperationExecuted"):
-        res = re.search('request_id:=([^,]+)', line)
-        return msg if (res == None) else msg + "#" + res.group(1)
+        ret = []
+        retTail = []
+        toContract = []
+        it = 0
+        toContractStart = -1
+        toContractEnd = -1
 
-    if (msg == "IMExecutionResult"):
-        res = re.search('request_id:=([^,]+).*execution_status:=([^,}]+)', line)
-        return msg if (res == None) else msg + "#" + res.group(1) + "(" + res.group(2) + ")"
-    return msg
+        def inside(pnt, start, end):
+            return (start < pnt) and (pnt < end)
+        for event in events:
+            nextIt = it + event.size()
+
+            if (nextIt <= start):
+                ret.append(event)
+            elif (it >= end):
+                retTail.append(event)
+            else:
+                toContract.append(event)
+                if (toContractStart == -1):
+                    toContractStart = it 
+                toContractEnd = nextIt
+
+            it = it + event.size()
+        if (toContractStart != start) or (toContractEnd != end) or (len(toContract) != (end - start)):
+            return ret + toContract + retTail
+        
+        def contractEvents(toContract, times, start, end):
+            if (not toContract):
+                return []
+            return [MultipleEvents(toContract[:patternSize], times)]
+
+        return ret + contractEvents(toContract, times, start, end) + retTail
+        
+    hashMap = generateHashes(events)
+    duplicates = sum([extractDuplicates(hashMap[key]) for key in hashMap.keys()], [])
+    duplicates = reversed(sorted(duplicates, key=lambda (times, start, end): ((end - start), times)))
+    for duplicate in duplicates:
+        events = contractRanges(duplicate, events)
+    for event in events:
+        if (event.size() > 1):
+            event.events = contract(event.events)
+    return events
+
+def msgExtractorExists():
+    import imp
+    try:
+        imp.find_module('msgExtractor')
+        return True
+    except ImportError:
+        return False
+
+def getCustomOrDefaultMsgExtractor():
+    if (msgExtractorExists()):
+        from msgExtractor import extract
+        return extract
+    else:
+        return lambda msgName, msgContent: msgName
 
 def generate_uml(logfile, options):
     fromfile = open(logfile).read().split("\n")
@@ -215,7 +313,8 @@ def generate_uml(logfile, options):
                 break
         if (since_log_seen):
             log.append(line)
-    events = createEvents(log, msgExtractor)
+
+    events = createEvents(log, getCustomOrDefaultMsgExtractor())
     for event in events:
         event.update(systemPorts)
     events = filter(lambda e : e.filter(options, systemPorts), events)
