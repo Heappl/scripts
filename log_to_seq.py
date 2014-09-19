@@ -11,6 +11,7 @@ def parse_commandline_options():
     parser.add_option("", "--till_line", type='str', dest="till_line", help="the generated logs will end here - any python regex is accepted and it may consider any line in log")
     parser.add_option("", "--disable_msgs", type='str', dest="disabled_msgs", help="comma separated list of messages (python regex without comma) that will not be displayed in output diagram")
     parser.add_option("", "--internal", action='store_true', help="By default no k3 internal communication is disabled") 
+    parser.add_option("", "--duplication_limit", type='int', help="set maximum duplication size to check, by default it is infinity, setting lower limit should improve time consumed") 
     (options, args) = parser.parse_args() 
     if (options.disabled_msgs):
         options.disabled_msgs = options.disabled_msgs.split(',')
@@ -130,7 +131,7 @@ class PtsdEvent(CommEvent):
 
 class UlogEvent(Event):
     def __init__(self, line, _):
-        res = re.search('\|ulog\|[^|]+\|("([A-Z]*)[: *]""([^"]*)".*)', line)
+        res = re.search('\|ulog\|[^|]+\|("([A-Z]*)[: ]*""([^"]*)".*)', line)
         if (res == None):
             res = re.search('\|ulog\|[^|]+\|(.*)', line)
             self.level = "DEBUG"
@@ -194,12 +195,15 @@ def createEvents(log, msgExtractor):
         return eventType(line, msgExtractor) 
     return [extractInfo(line) for line in log if is_interesting(line)]
 
-def contract(events):
+def contract(events, options):
+    if (options.duplication_limit == 0):
+        return events
     def generateHashes(events):
         hashes = [hash(event) for event in events]
         ret = {}
+        reduction = len(hashes) if (not options.duplication_limit) else options.duplication_limit
         for i in range(0, len(hashes)):
-            for j in range(i + 1, len(hashes)):
+            for j in range(i + 1, min(i + reduction, len(hashes) + 1)):
                 totalHash = reduce(lambda a, b: hash((a, b)), hashes[i:j], 0)
                 if not (totalHash in ret):
                     ret[totalHash] = []
@@ -212,12 +216,9 @@ def contract(events):
         for (start, end) in rangeList:
             elem = (start, end)
             (prevstart, prevend) = ret[-1]
-            appended = False
-            if (start == prevend):
-                if events[start:end] == events[prevstart:prevend]:
-                    ret.append(elem)
-                    appended = True
-            if (not appended):
+            if (start == prevend) and (events[start:end] == events[prevstart:prevend]):
+                ret.append(elem)
+            else:
                 retRangeList.append(elem)
         
         (firsti, _) = ret[0]
@@ -275,12 +276,26 @@ def contract(events):
         
     hashMap = generateHashes(events)
     duplicates = sum([extractDuplicates(hashMap[key]) for key in hashMap.keys()], [])
-    duplicates = reversed(sorted(duplicates, key=lambda (times, start, end): ((end - start), times)))
+    def compareDuplicates((times1, start1, end1), (times2, start2, end2)):
+        size1 = (end1 - start1)
+        size2 = (end2 - start2)
+        if (size1 == size2):
+            if (times1 > times2):
+                return -1
+            elif (times1 < times2):
+                return 1
+            else:
+                return 0
+        elif (size1 > size2):
+            return -1
+        else:
+            return 1
+    duplicates = sorted(duplicates, compareDuplicates)
     for duplicate in duplicates:
         events = contractRanges(duplicate, events)
     for event in events:
         if (event.size() > 1):
-            event.events = contract(event.events)
+            event.events = contract(event.events, options)
     return events
 
 def msgExtractorExists():
@@ -318,7 +333,7 @@ def generate_uml(logfile, options):
     for event in events:
         event.update(systemPorts)
     events = filter(lambda e : e.filter(options, systemPorts), events)
-    events = contract(events)
+    events = contract(events, options)
     out = open(logfile + ".uml", "w")
     out.write("@startuml\n")
     for event in events:
