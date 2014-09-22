@@ -10,11 +10,18 @@ def parse_commandline_options():
     parser.add_option("", "--since_line", type='str', dest="since_line", help="the generated logs will start from there - any python regex is accepted and it may consider any line in log")
     parser.add_option("", "--till_line", type='str', dest="till_line", help="the generated logs will end here - any python regex is accepted and it may consider any line in log")
     parser.add_option("", "--disable_msgs", type='str', dest="disabled_msgs", help="comma separated list of messages (python regex without comma) that will not be displayed in output diagram")
+    parser.add_option("", "--enable_comps", type='str', dest="enabled_comps", help="comma separated list of components (python regex without comma) that will be displayed in the output diagram (`system` for sut)")
+    parser.add_option("", "--disable_comps", type='str', dest="disabled_comps", help="comma separated list of components (python regex without comma) that won't be displayed in the output diagram (`system` for sut)")
+    parser.add_option("-s", "--strict_comp_filtering", action='store_true', help="component filtering for enabled components will be strict (both components must match)")
     parser.add_option("", "--internal", action='store_true', help="By default no k3 internal communication is disabled") 
     parser.add_option("", "--duplication_limit", type='int', help="set maximum duplication size to check, by default it is infinity, setting lower limit should improve time consumed") 
     (options, args) = parser.parse_args() 
     if (options.disabled_msgs):
         options.disabled_msgs = options.disabled_msgs.split(',')
+    if (options.enabled_comps):
+        options.enabled_comps = options.enabled_comps.split(',')
+    if (options.disabled_comps):
+        options.disabled_comps = options.disabled_comps.split(',')
     return (options, args)
 
 def mapped(log):
@@ -40,11 +47,13 @@ class Event:
     def size(self):
         return 1
 
-def msgDisabled(msg, disabledList):
-    for disabledMsg in disabledList:
-        if re.match('.*' + disabledMsg + '.*',  msg) != None:
+def matchesSomeRegex(arg, regexList):
+    for elem in regexList:
+        if re.match('.*' + elem + '.*',  arg) != None:
             return True
     return False
+def matchingSomeRegex(elems, regexList):
+    return [matchesSomeRegex(elem, regexList) for elem in elems]
 
 class CommEvent(Event):
     def __init__(self):
@@ -57,7 +66,13 @@ class CommEvent(Event):
         if (not options.internal):
             ret = ret and ((self.sender == "system") or (self.receiver == "system"))
         if (options.disabled_msgs):
-            ret = ret and not msgDisabled(self.msg, options.disabled_msgs)
+            ret = ret and (not matchesSomeRegex(self.msg, options.disabled_msgs))
+        if (options.disabled_comps):
+            matching = matchingSomeRegex([self.receiver, self.sender], options.disabled_comps)
+            ret = ret and (not any(matching))
+        if (options.enabled_comps):
+            matching = matchingSomeRegex([self.receiver, self.sender], options.enabled_comps)
+            ret = ret and (all(matching) if (options.strict_comp_filtering) else any(matching))
         return ret
 
     def produce(self, out):
@@ -119,6 +134,7 @@ class PtsdEvent(CommEvent):
 
     def filter(self, options, systemPorts):
         return (self.receiver == "system") and CommEvent.filter(self, options, systemPorts)
+
     def update(self, systemPorts):
         if (self.sender in systemPorts):
             self.receiver = "system"
