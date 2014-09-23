@@ -56,10 +56,11 @@ def matchingSomeRegex(elems, regexList):
     return [matchesSomeRegex(elem, regexList) for elem in elems]
 
 class CommEvent(Event):
-    def __init__(self):
+    def __init__(self, line, msgExtractor):
         self.msg = "invalid"
         self.receiver = "invalid"
         self.sender = "invalid"
+        self.extractInfo(line, msgExtractor)
     
     def filter(self, options, systemPorts):
         ret = True
@@ -90,17 +91,18 @@ class CommEvent(Event):
 #most communication can be extracted through ptqu event
 class PtquEvent(CommEvent):
     def __init__(self, line, msgExtractor):
-        CommEvent.__init__(self)
-        self.extractInfo(line, msgExtractor)
-
+        CommEvent.__init__(self, line, msgExtractor)
+        self.received = False
+    
     def extractInfo(self, line, msgExtractor):
-        res = re.search('\|ptqu\|([^=$]+)=[^|]+\|[$]*([^$|]+)\|message\(value=[^.]+\.([^:]+)(.*)\)', line)
+        res = re.search('\|ptqu\|([^=$]+)=[^|]+\|[$]*([^$|]+)\|message\(value=[^.]+\.([^:]+)(.*)timestamp=([0-9T.]+)\)', line)
         if (res == None):
-            res = re.search('\|ptqu\|([^|]+)\|[$]*([^$|]+)\|message\(value=[^.]+\.([^:]+)(.*)\)', line)
+            res = re.search('\|ptqu\|([^|]+)\|[$]*([^$|]+)\|message\(value=[^.]+\.([^:]+)(.*)timestamp=([0-9T.]+)\)', line)
         if (res != None):
             self.msg = msgExtractor(res.group(3), res.group(4))
             self.receiver = res.group(2)
             self.sender = res.group(1)
+            self.timestamp = res.group(5)
         else:
             print(line)
     
@@ -112,17 +114,50 @@ class PtquEvent(CommEvent):
         self.receiver = getComponent(self.receiver)
         self.sender = getComponent(self.sender)
 
+    def setReceived(self):
+        self.received = True
+
+    def produce(self, out):
+        if (not self.received):
+            self.receiver = self.receiver + "(DUMPED)"
+        CommEvent.produce(self, out)
+
     @staticmethod
     def descr():
         return "ptqu"
+
+class PtrxEvent(CommEvent):
+    def __init__(self, line, msgExtractor):
+        CommEvent.__init__(self, line, msgExtractor)
+        self.queued = True
+
+    def extractInfo(self, line, msgExtractor):
+        res = re.search('\|ptrx\|[^|]+\|([^|]+)\|.*\|ready\(match=message\(value=[^.]+\.([^:]+):(.*).*,sender=(.*),timestamp=([0-9T.]+)\)\)\+consume', line)
+        if (res != None):
+            self.msg = msgExtractor(res.group(2), res.group(3))
+            self.receiver = res.group(1)
+            self.sender = res.group(4)
+            self.timestamp = res.group(5)
+        else:
+            print(line)
+    
+    def update(self, systemPorts):
+        if (self.receiver in systemPorts):
+            self.sender = "system"
+        self.receiver = getComponent(self.receiver)
+        self.sender = getComponent(self.sender)
+    def standalone(self):
+        self.queued = False
+    def filter(self, options, systemPorts):
+        return not self.queued
+
+    @staticmethod
+    def descr():
+        return "ptrx.*consume"
         
 
 #sending to system - can be extracted only through ptsd event
 class PtsdEvent(CommEvent):
-    def __init__(self, line, msgExtractor):
-        CommEvent.__init__(self)
-        self.extractInfo(line, msgExtractor)
-
     def extractInfo(self, line, msgExtractor):
         res = re.search('\|ptsd\|[^|]+\|([^|]+)\|[^|]+\|[^.]+\.([^|]+)\|(.*)', line)
         if (res != None):
@@ -200,10 +235,10 @@ class Invalid(Event):
         pass
 
 def createEvents(log, msgExtractor):
-    eventTypes = [UlogEvent, PtsdEvent, PtquEvent]
+    eventTypes = [UlogEvent, PtsdEvent, PtquEvent, PtrxEvent]
 
     def is_event(eventType, line):
-        return re.match('[0-9.T]+\|' + eventType.descr() + '\|', line) != None
+        return re.match('[0-9.T]+\|' + eventType.descr(), line) != None
     def is_interesting(line):
         return any(map(lambda eventType : is_event(eventType, line), eventTypes))
     def extractInfo(line):
@@ -329,6 +364,42 @@ def getCustomOrDefaultMsgExtractor():
     else:
         return lambda msgName, msgContent: msgName
 
+def matchQueuedWithReceived(events):
+    import itertools
+    def getReceiver(event):
+        return event.receiver
+    def isInstanceAnyOf(inst, classes):
+        return any([isinstance(inst, cl) for cl in classes])
+    def groupByPort(events):
+        import collections
+        ret = {}
+        for event in events:
+            if not event.receiver in ret:
+                ret[event.receiver] = collections.deque()
+            ret[event.receiver].append(event)
+        return ret
+
+    queued = groupByPort([event for event in events if isinstance(event, PtquEvent)])
+    received = groupByPort([event for event in events if isinstance(event, PtrxEvent)])
+
+    def matchQueueWithReceived_singlePort(queued, received):
+        def areEqual(first, second):
+            return (first.msg == second.msg) and (first.timestamp == second.timestamp)
+
+        for event in received:
+            if (not queued) or (not areEqual(queued[0], event)):
+                event.standalone()
+                continue
+            while (queued and areEqual(queued[0], event)):
+                queued.popleft().setReceived()
+        for event in queued:
+            print("queued: " + str(event))
+
+    for key in queued.keys():
+        receivedByPort = received[key] if key in received else []
+        matchQueueWithReceived_singlePort(queued[key], receivedByPort)
+
+
 def generate_uml(logfile, options):
     fromfile = open(logfile).read().split("\n")
     systemPorts = mapped(fromfile)
@@ -346,6 +417,7 @@ def generate_uml(logfile, options):
             log.append(line)
 
     events = createEvents(log, getCustomOrDefaultMsgExtractor())
+    matchQueuedWithReceived(events)
     for event in events:
         event.update(systemPorts)
     events = filter(lambda e : e.filter(options, systemPorts), events)
