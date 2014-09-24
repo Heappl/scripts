@@ -151,7 +151,7 @@ class PtrxEvent(CommEvent):
     def standalone(self):
         self.queued = False
     def filter(self, options, systemPorts):
-        return not self.queued
+        return (not self.queued) and CommEvent.filter(self, options, systemPorts)
 
     @staticmethod
     def descr():
