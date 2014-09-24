@@ -92,7 +92,7 @@ class CommEvent(Event):
 class PtquEvent(CommEvent):
     def __init__(self, line, msgExtractor):
         CommEvent.__init__(self, line, msgExtractor)
-        self.received = False
+        self.received = 0
     
     def extractInfo(self, line, msgExtractor):
         res = re.search('\|ptqu\|([^=$]+)=[^|]+\|[$]*([^$|]+)\|message\(value=[^.]+\.([^:]+)(.*)timestamp=([0-9T.]+)\)', line)
@@ -114,13 +114,15 @@ class PtquEvent(CommEvent):
         self.receiver = getComponent(self.receiver)
         self.sender = getComponent(self.sender)
 
-    def setReceived(self):
-        self.received = True
+    def setReceived(self, msgQueuedTimes):
+        self.received = msgQueuedTimes
 
     def produce(self, out):
-        if (not self.received):
-            self.receiver = self.receiver + "(DUMPED)"
         CommEvent.produce(self, out)
+        if (self.received == 0):
+            out.write("destroy " + self.receiver + "\n")
+    def filter(self, options, systemPorts):
+        return (self.received < 2) and CommEvent.filter(self, options, systemPorts)
 
     @staticmethod
     def descr():
@@ -390,10 +392,12 @@ def matchQueuedWithReceived(events):
             if (not queued) or (not areEqual(queued[0], event)):
                 event.standalone()
                 continue
+            count = 1
             while (queued and areEqual(queued[0], event)):
-                queued.popleft().setReceived()
+                queued.popleft().setReceived(count)
+                count = count + 1
         for event in queued:
-            print("queued: " + str(event))
+            print("queued and never received: " + str(event))
 
     for key in queued.keys():
         receivedByPort = received[key] if key in received else []
