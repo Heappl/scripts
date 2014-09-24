@@ -156,7 +156,6 @@ class PtrxEvent(CommEvent):
     @staticmethod
     def descr():
         return "ptrx.*consume"
-        
 
 #sending to system - can be extracted only through ptsd event
 class PtsdEvent(CommEvent):
@@ -385,19 +384,25 @@ def matchQueuedWithReceived(events):
     received = groupByPort([event for event in events if isinstance(event, PtrxEvent)])
 
     def matchQueueWithReceived_singlePort(queued, received):
+        def getData(event):
+            return (event.timestamp, event.msg)
         def areEqual(first, second):
-            return (first.msg == second.msg) and (first.timestamp == second.timestamp)
+            return getData(first) == getData(second)
+
+        queuedMap = {}
+        for event in queued:
+            if (not getData(event) in queuedMap):
+                queuedMap[getData(event)] = []
+            queuedMap[getData(event)].append(event)
 
         for event in received:
-            if (not queued) or (not areEqual(queued[0], event)):
+            if getData(event) in queuedMap:
+                count = 1
+                for queuedEvent in queuedMap[getData(event)]:
+                    queuedEvent.setReceived(count)
+                    count = count + 1
+            else:
                 event.standalone()
-                continue
-            count = 1
-            while (queued and areEqual(queued[0], event)):
-                queued.popleft().setReceived(count)
-                count = count + 1
-        for event in queued:
-            print("queued and never received: " + str(event))
 
     for key in queued.keys():
         receivedByPort = received[key] if key in received else []
