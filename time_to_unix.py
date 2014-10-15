@@ -11,7 +11,7 @@ def tounix(timestamp, format):
     from datetime import datetime
     from time import mktime
     date = datetime.strptime(timestamp, format)
-    return mktime(date.timetuple())
+    return mktime(date.timetuple()) + date.microsecond / 1000000.0
 
 
 def main():

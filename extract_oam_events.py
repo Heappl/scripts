@@ -28,7 +28,7 @@ def convert_to_events(options, lines):
         if (options.with_timestamps):
             ret.append(timestamp + " " + location)
         else:
-            ret.append(location + " " + content)
+            ret.append(location)# + " " + content)
             
     return ret
     
