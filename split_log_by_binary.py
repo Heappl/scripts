@@ -37,9 +37,10 @@ def extractFile(infile, outfile, regex):
     open(outfile, "w").write("\n".join(extracted))
 
 def splitFile(filename, outdir):
+    import os
     for name in getBinaries(filename):
         if name:
-            extractFile(filename, outdir + "/" + filename + "." + name + ".log", "^[^ ]* [^ ]\+ " + name)
+            extractFile(filename, outdir + "/" + os.path.basename(filename) + "." + name + ".log", "^[^ ]* [^ ]\+ " + name)
 
 def main():
     opts = Options()

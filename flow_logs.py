@@ -5,7 +5,6 @@ from time_to_unix import tounix
 def parse_command_options(): 
     from optparse import OptionParser 
     parser = OptionParser() 
-    parser.add_option("-f", "--format", help="timestamp format")
     return parser.parse_args() 
       
 def shell(command):
