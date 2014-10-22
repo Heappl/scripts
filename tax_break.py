@@ -17,7 +17,7 @@ def parse_commandline_options():
     parser.add_option("-t", "--target-directory", dest="tdir", help="[REQUIRED] Directory where report will be stored.", metavar="DIR") 
     parser.add_option("-n", "--report-name", dest="name", help="[REQUIRED] Name of the report, files will be named after it.") 
     parser.add_option("", "--since", dest="since", help="[REQUIRED] Date since report will be generated.", metavar="DATE") 
-    parser.add_option("", "--author", dest="author", help="[REQUIRED] User name to search commits by.", metavar="DATE") 
+    parser.add_option("", "--author", dest="author", help="[REQUIRED] User name to search commits by.") 
     parser.add_option("", "--find-touched-files", dest="only_file_list", action='store_true', help="Instead of generating report, will find touched files and print them to stdout.") 
     parser.add_option("", "--until", dest="until", help="Generate diff until given date", metavar="DATE") 
     (options, args) = parser.parse_args() 
