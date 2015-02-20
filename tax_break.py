@@ -14,8 +14,8 @@ def checkRequiredArguments(opts, parser):
 def parse_commandline_options(): 
     from optparse import OptionParser 
     parser = OptionParser() 
-    parser.add_option("-t", "--target-directory", dest="tdir", help="[REQUIRED] Directory where report will be stored.", metavar="DIR") 
-    parser.add_option("-n", "--report-name", dest="name", help="[REQUIRED] Name of the report, files will be named after it.") 
+    parser.add_option("-t", "--target-directory", dest="tdir", help="Directory where report will be stored.", metavar="DIR") 
+    parser.add_option("-n", "--report-name", dest="name", help="Name of the report, files will be named after it.") 
     parser.add_option("", "--since", dest="since", help="[REQUIRED] Date since report will be generated.", metavar="DATE") 
     parser.add_option("", "--author", dest="author", help="[REQUIRED] User name to search commits by.") 
     parser.add_option("", "--find-touched-files", dest="only_file_list", action='store_true', help="Instead of generating report, will find touched files and print them to stdout.") 
@@ -49,7 +49,7 @@ def find_touched_files():
     ret = set()
     for hsh in hashes:
         hsh = hsh.strip("\"")
-        ret = ret.union(set(git(["diff", "--name-only", hsh + "^.." + hsh] + args)))
+        ret = ret.union(set(git(["diff", "--name-only", hsh + "^.." + hsh, "--"] + args)))
     return ret
 
 touched_files = find_touched_files()
@@ -78,7 +78,7 @@ open(log_file, "+w").write("\n".join(git(["log"] + common_git_args)))
 print("generated log file: " + log_file)
 open(diff_file, "+w").write(generateDiff())
 print("generated diff file: " + diff_file)
-shell(["zip", zip_file] + list(touched_files) + [log_file])
+shell(["zip", "-j", zip_file] + list(touched_files))
 print("generated zip file: " + zip_file + " containing " + str(len(touched_files) + 2) + " files")
 
 #logs = subprocess.call(["git", "log", "--since", options.since, "--author", options.author] + args)

@@ -10,7 +10,7 @@ def convert_to_events(options, lines):
     import re
     ret = []
     for line in lines:
-        res = re.search('([0-9T.]+).( [^ ]+){5} ([^/]+)/([^ ]+) (.*)', line)
+        res = re.search('([0-9T.]+).( [^ ]+){4,5} ([^/]+)/([^ ]+) (.*)', line)
         if not res:
             continue
         timestamp = res.group(1)
@@ -21,9 +21,9 @@ def convert_to_events(options, lines):
         content = re.sub('[^A-Za-z]', ' ', content)
         content = re.sub(' +', ' ', content)
 
-        res = re.search('^(LGC|CCS|Aa|OAM.OAMThread|OAM.OAMGen)', location)
-        if (res != None):
-            continue
+        #res = re.search('^(LGC|CCS|Aa|OAM.OAMThread|OAM.OAMGen)', location)
+        #if (res != None):
+            #continue
 
         if (options.with_timestamps):
             ret.append(timestamp + " " + location)
