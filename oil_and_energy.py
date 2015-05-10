@@ -1,6 +1,7 @@
 
 import matplotlib.pyplot as plt
 import numpy as np
+import math
 
 def diff_serie(data):
     return [(float(x2) / float(x1) - 1.0) * 100 for (x2, x1) in zip(data[1:], data[:-1])]
@@ -12,7 +13,7 @@ def prediction(data, years):
     return data + [pow(1.0 + average_change(data) / 100.0, y) * data[-1] for y in range(1, years)]
 
 def doubling_time(data):
-    return 70 / average_change(data)
+    return math.log(2, 1 + average_change(data) / 100.0)
 
 #1965-
 production_tonnes = [1567.9, 1702.3, 1826.6, 1992.8, 2143.4, 2358.0, 2496.2, 2640.6, 2871.3, 2879.4, 2738.2, 2972.9, 3077.1, 3106.8, 3237.3, 3091.9, 2913.9, 2799.7, 2763.0, 2818.7, 2796.8, 2941.6, 2952.5, 3074.7, 3108.6, 3175.4, 3165.7, 3195.3, 3194.5, 3244.0, 3286.1, 3384.2, 3485.9, 3550.8, 3486.9, 3620.4, 3620.3, 3604.5, 3737.5, 3909.6, 3947.5, 3968.7, 3955.3, 3993.2, 3890.9, 3979.3, 4010.6, 4117.4, 4130.2]
@@ -42,6 +43,15 @@ print("average energy consumption growth: ", average_change(energy_consumption),
 #how many years will the reserves last at given year consumption
 enough_for_years = [r / c for (r, c) in zip(reserves_barrels, consumption_barrels[-len(reserves_barrels):])]
 
+#1960-2013
+world_population = [3036532274, 3077628660, 3130560798, 3195417729, 3260822806, 3327569763, 3397499965, 3467103790, 3537483987, 3611954924, 3686967186, 3763995029, 3840300260, 3915619481, 3991662329, 4066294816, 4139216505, 4212110303, 4286351034, 4362172135, 4438370556, 4515996446, 4596367792, 4677144145, 4757614414, 4839988721, 4925285182, 5012839430, 5101281852, 5189681453, 5278917295, 5365433943, 5448304921, 5531856268, 5614434365, 5697982639, 5780020061, 5861978511, 5942982003, 6023027888, 6101963950, 6179984867, 6257502234, 6334799169, 6412222945, 6489886972, 6567781100, 6645686556, 6724770576, 6804045819, 6884007764, 6964618177, 7043181414, 7125096708]
+world_fertility_rate = [4.97948236106441, 4.99685819530925, 5.01113676413739, 5.02191448801587, 5.02037956002923, 4.98999330794235, 4.93157441902233, 4.90693398924276, 4.85108066647119, 4.7838782325247, 4.70957818648593, 4.61218187570381, 4.49410609136349, 4.37544795176232, 4.26246755669855, 4.13826180878561, 4.02672994836869, 3.92932863735946, 3.83936487980546, 3.7736079113279, 3.71631798567279, 3.66392458807635, 3.63705804409513, 3.60623086822255, 3.57588217413512, 3.54839385963458, 3.51367909702325, 3.47111004443242, 3.41597838676048, 3.34521436416391, 3.27108095399287, 3.18149132330502, 3.0946032808544, 3.00573988523987, 2.9315151235276, 2.85926711725989, 2.80269227214385, 2.75019290398177, 2.70876432055345, 2.6701970301134, 2.64511099191879, 2.61393717543333, 2.59120804593079, 2.57341523485324, 2.55846596192828, 2.53920620757993, 2.53091593790034, 2.52411013716623, 2.51595136404155, 2.50060806166854, 2.48883793331158, 2.47573037924979, 2.47085830381361, 2.45989740588603]
+
+  
+
+oil_consumption_per_capita = [c / float(p) for (c, p) in zip(consumption_barrels, world_population[-len(consumption_barrels):])]
+print(oil_consumption_per_capita)
+
 def myplot(data, descr, endyear = 2014):
     plt.plot(range(endyear - len(data), endyear), data)
     plt.axis([endyear - len(data) - 1, endyear, min(data) * 0.9, max(data) * 1.07])
@@ -49,12 +59,15 @@ def myplot(data, descr, endyear = 2014):
     plt.show()
 
 
+myplot(oil_consumption_per_capita, "world oil consumption per capita")
 #myplot(prediction(consumption_barrels, 10), 'world oil consumption with prediction assuming constant growth at current average', 2024)
 #myplot(diff_serie(consumption_barrels), 'consumption_growth rate of world oil consumption in percents')
 #myplot(consumption_barrels, 'world oil consumption (yearly in thousand of barrels)');
+#myplot(world_population, "world population")
+#myplot(world_fertility_rate, "world fertility rate")
 #myplot(reserves_barrels, 'world oil proven reserves');
 #myplot(enough_for_years, 'world reserves will last for y years at given year consumption');
 #myplot(energy_consumption, 'world energy consumption in Mtoe');
 #myplot(prediction(energy_consumption, 20), 'world energy consumption in Mtoe and prediction', 2034);
-myplot(gas_consumption, "world natural gas consumption (bcm)")
+#myplot(gas_consumption, "world natural gas consumption (bcm)")
 
